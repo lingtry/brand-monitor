@@ -433,6 +433,70 @@ def search_weibo(query: str) -> List[Dict]:
     return search_bing_rss(bing_query, count=10)
 
 
+def search_baidu(query: str, count: int = 15) -> List[Dict]:
+    """
+    抓取百度搜索结果（网页 + 资讯）。
+    注意：GitHub Actions 海外 IP 可能被百度限制，返回空结果属正常现象。
+    """
+    results = []
+    encoded = urllib.parse.quote(query)
+
+    # 百度资讯搜索
+    news_url = f"https://www.baidu.com/s?wd={encoded}&tn=news&rtt=1"
+    text = fetch_url(news_url, timeout=15)
+    if text:
+        # 匹配百度资讯结果：<h3> 标签内的链接
+        patterns = [
+            # 新版百度资讯
+            r'<h3[^>]*class="[^"]*news-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>',
+            # 通用 h3 > a 模式
+            r'<h3[^>]*>\s*<a[^>]*href="(https?://[^"]+)"[^>]*>([^<]+)</a>',
+            # data-url 属性
+            r'data-url="(https?://[^"]+)"[^>]*>([^<]{5,})<',
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+            if matches:
+                for href, title in matches[:count]:
+                    title = strip_html(title).strip()
+                    if title and len(title) > 3:
+                        results.append({
+                            "title": title,
+                            "link": href,
+                            "summary": "",
+                            "source": "百度资讯",
+                            "type": "新闻",
+                        })
+                break  # 命中一个模式就停止
+
+    # 如果资讯没结果，尝试百度网页搜索（只搜中文站点）
+    if not results:
+        web_url = f"https://www.baidu.com/s?wd={encoded}&rn={count}"
+        text = fetch_url(web_url, timeout=15)
+        if text:
+            # 百度网页搜索结果
+            patterns = [
+                r'<h3[^>]*class="t"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>',
+                r'<h3[^>]*>\s*<a[^>]*href="(https?://[^"]+)"[^>]*>([^<]+)</a>',
+            ]
+            for pattern in patterns:
+                matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+                if matches:
+                    for href, title in matches[:count]:
+                        title = strip_html(title).strip()
+                        if title and len(title) > 3:
+                            results.append({
+                                "title": title,
+                                "link": href,
+                                "summary": "",
+                                "source": "百度搜索",
+                                "type": "搜索引擎",
+                            })
+                    break
+
+    return results
+
+
 # ============================================================
 # 搜索引擎组装
 # ============================================================
@@ -529,6 +593,22 @@ def collect_all_results() -> List[Dict]:
     wb_results = search_weibo(f"{BRAND_NAME_CN} 质量")
     add_unique(wb_results)
     print(f"  微博(间接): {len(wb_results)} 条")
+
+    # 百度搜索（中文源，最多搜5个关键查询，避免被ban）
+    print("\n🔍 百度搜索...")
+    baidu_queries = [
+        "{brand_cn} 投诉",
+        "{brand_cn} 质量问题",
+        "{brand_cn} 爆炸 起火",
+        "{brand} 充电 发热",
+        "{brand_cn} 售后",
+    ]
+    for qt in baidu_queries:
+        q = qt.format(brand=BRAND_NAME, brand_cn=BRAND_NAME_CN)
+        baidu_results = search_baidu(q, count=10)
+        add_unique(baidu_results)
+        print(f"  百度 [{q}]: {len(baidu_results)} 条")
+        time.sleep(1)  # 百度限制更严格，间隔长一点
 
     return all_results
 
