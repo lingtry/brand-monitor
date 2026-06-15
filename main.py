@@ -913,14 +913,11 @@ def main():
     print(f"🟢 低危：{low_count} 条")
     print(f"⚪ 中性：{len(categorized.get('⚪ 中性/正面', []))} 条")
 
-    # 5. 构建并发送邮件
-    if total_neg > 0 or len(new_results) > 0:
-        html = build_email_html(categorized, raw_count)
-        success = send_email(html, total_neg, high_count)
-        if success:
-            save_cache(cache, new_results)
-    else:
-        print("\n✅ 无新增内容，跳过发送。")
+    # 5. 构建并发送邮件（始终发送，无新内容时发送空摘要）
+    html = build_email_html(categorized, raw_count)
+    success = send_email(html, total_neg, high_count)
+    if success and len(new_results) > 0:
+        save_cache(cache, new_results)
 
     print("\n" + "=" * 60)
     print("✅ 本轮监控完成")
